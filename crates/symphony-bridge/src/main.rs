@@ -13,7 +13,7 @@ use axum::{
 use clap::Parser;
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
-use std::{future, net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
+use std::{net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
 use tokio::{
     sync::{broadcast, RwLock},
     task::JoinHandle,
@@ -193,7 +193,7 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                             continue;
                         }
                     };
-                    if sender.send(Message::text(text)).await.is_err() {
+                    if sender.send(Message::Text(text)).await.is_err() {
                         break;
                     }
                 }

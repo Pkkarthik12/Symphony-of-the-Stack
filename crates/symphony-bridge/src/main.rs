@@ -13,15 +13,7 @@ use axum::{
 use clap::Parser;
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
-use std::{
-    net::SocketAddr,
-    path::PathBuf,
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        Arc,
-    },
-    time::Duration,
-};
+use std::{net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
 use tokio::sync::{broadcast, RwLock};
 use tower_http::{
     cors::CorsLayer,
@@ -83,7 +75,6 @@ pub struct SymphonyFrame {
 #[derive(Clone)]
 struct AppState {
     tx: broadcast::Sender<SymphonyFrame>,
-    tick: Arc<AtomicU64>,
     metrics: Arc<RwLock<LiveMetrics>>,
 }
 
@@ -107,7 +98,6 @@ async fn main() -> Result<()> {
     let (tx, _) = broadcast::channel(256);
     let state = AppState {
         tx: tx.clone(),
-        tick: Arc::new(AtomicU64::new(0)),
         metrics: Arc::new(RwLock::new(LiveMetrics {
             target: "production/api".into(),
             request_rate: 800.0,
@@ -136,7 +126,10 @@ async fn main() -> Result<()> {
     }
     spawn_broadcaster(state.clone(), tick_ms);
 
-    let web_dir = args.web_dir.canonicalize().unwrap_or(args.web_dir.clone());
+    let web_dir = args
+        .web_dir
+        .canonicalize()
+        .unwrap_or_else(|_| args.web_dir.clone());
     let index = web_dir.join("index.html");
     if !index.exists() {
         anyhow::bail!(
@@ -212,7 +205,7 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
 }
 
 fn spawn_broadcaster(state: AppState, tick_ms: u64) {
-    tokio::spawn(async move {
+    let _ = tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_millis(tick_ms));
         loop {
             interval.tick().await;
@@ -234,13 +227,12 @@ fn spawn_broadcaster(state: AppState, tick_ms: u64) {
                 w.event = None;
             }
             let _ = state.tx.send(frame);
-            state.tick.fetch_add(1, Ordering::Relaxed);
         }
     });
 }
 
 fn spawn_demo_driver(state: AppState, tick_ms: u64) {
-    tokio::spawn(async move {
+    let _ = tokio::spawn(async move {
         let mut t: f64 = 0.0;
         let step = tick_ms as f64 / 1000.0;
         let mut interval = tokio::time::interval(Duration::from_millis(tick_ms));
@@ -269,7 +261,7 @@ fn spawn_demo_driver(state: AppState, tick_ms: u64) {
 }
 
 fn spawn_nats_ingest(state: AppState, url: String, subjects: Vec<String>) {
-    tokio::spawn(async move {
+    let _ = tokio::spawn(async move {
         loop {
             match run_nats_ingest(state.clone(), &url, &subjects).await {
                 Ok(()) => tracing::warn!("nats ingest ended, reconnecting"),
@@ -290,7 +282,7 @@ async fn run_nats_ingest(state: AppState, url: &str, subjects: &[String]) -> Res
         let mut sub = client.subscribe(subject.clone()).await?;
         let state = state.clone();
         let subject_name = subject.clone();
-        tokio::spawn(async move {
+        let _ = tokio::spawn(async move {
             while let Some(msg) = sub.next().await {
                 if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&msg.payload) {
                     apply_nats_event(&state, &subject_name, &v).await;
@@ -332,7 +324,7 @@ async fn apply_nats_event(state: &AppState, subject: &str, value: &serde_json::V
 }
 
 fn spawn_anomaly_poll(state: AppState, base: String) {
-    tokio::spawn(async move {
+    let _ = tokio::spawn(async move {
         let client = reqwest::Client::new();
         let url = format!("{}/v1/score", base.trim_end_matches('/'));
         let mut interval = tokio::time::interval(Duration::from_secs(2));

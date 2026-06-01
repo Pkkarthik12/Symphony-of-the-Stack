@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Symphony of the Stack</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/symphony.css" />
+</head>
+<body>
+  <canvas id="viz" aria-hidden="true"></canvas>
+
+  <header class="hud">
+    <div class="brand">
+      <span class="brand-mark">♫</span>
+      <div>
+        <h1>Symphony of the Stack</h1>
+        <p class="tagline">Your infrastructure, as music</p>
+      </div>
+    </div>
+    <div class="status" id="connection-status">Connecting…</div>
+  </header>
+
+  <main class="panel">
+    <section class="metrics" aria-label="Live telemetry">
+      <div class="metric">
+        <span class="label">Target</span>
+        <span class="value mono" id="m-target">—</span>
+      </div>
+      <div class="metric">
+        <span class="label">Request rate</span>
+        <span class="value mono" id="m-rate">—</span>
+        <span class="unit">req/s</span>
+      </div>
+      <div class="metric">
+        <span class="label">p99 latency</span>
+        <span class="value mono" id="m-latency">—</span>
+        <span class="unit">ms</span>
+      </div>
+      <div class="metric">
+        <span class="label">Error rate</span>
+        <span class="value mono" id="m-errors">—</span>
+      </div>
+      <div class="metric">
+        <span class="label">Anomaly</span>
+        <span class="value mono" id="m-anomaly">—</span>
+      </div>
+    </section>
+
+    <section class="controls">
+      <button type="button" id="btn-audio" class="btn primary">Start audio</button>
+      <label class="slider">
+        <span>Volume</span>
+        <input type="range" id="volume" min="0" max="1" step="0.01" value="0.35" />
+      </label>
+      <label class="slider">
+        <span>Sensitivity</span>
+        <input type="range" id="sensitivity" min="0.2" max="2" step="0.05" value="1" />
+      </label>
+    </section>
+
+    <section class="legend">
+      <h2>How it sounds</h2>
+      <ul>
+        <li><strong>Tempo</strong> follows request rate</li>
+        <li><strong>Pitch</strong> rises with p99 latency</li>
+        <li><strong>Dissonance</strong> tracks error rate</li>
+        <li><strong>Timbre</strong> shifts with anomaly score</li>
+        <li><strong>Chaos events</strong> trigger a drum strike</li>
+      </ul>
+    </section>
+  </main>
+
+  <footer class="footer">
+  <span id="m-event"></span>
+  </footer>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

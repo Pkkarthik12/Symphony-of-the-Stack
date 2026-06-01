@@ -1,0 +1,17 @@
+services:
+  symphony:
+    build: .
+    ports:
+      - "8765:8765"
+    environment:
+      SYMPHONY_WEB_DIR: /srv/web
+      SYMPHONY_DEMO: "true"
+    restart: unless-stopped
+
+  # Optional: connect to Nexus Orchestrator or any NATS publisher
+  nats:
+    image: nats:2.10-alpine
+    command: ["-js", "-m", "8222"]
+    ports:
+      - "4222:4222"
+    profiles: ["nexus"]

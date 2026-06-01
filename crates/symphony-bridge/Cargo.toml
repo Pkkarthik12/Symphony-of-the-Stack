@@ -1,0 +1,25 @@
+[package]
+name = "symphony-bridge"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description.workspace = true
+
+[[bin]]
+name = "symphony-bridge"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+async-nats = { workspace = true }
+axum = { version = "0.7", features = ["ws"] }
+clap = { workspace = true }
+futures-util = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tower-http = { version = "0.6", features = ["fs", "cors", "trace"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

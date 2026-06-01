@@ -13,8 +13,11 @@ use axum::{
 use clap::Parser;
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
-use std::{net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
-use tokio::sync::{broadcast, RwLock};
+use std::{future, net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
+use tokio::{
+    sync::{broadcast, RwLock},
+    task::JoinHandle,
+};
 use tower_http::{
     cors::CorsLayer,
     services::{ServeDir, ServeFile},
@@ -109,22 +112,26 @@ async fn main() -> Result<()> {
     };
 
     let tick_ms = args.tick_ms.max(50);
+    let mut background_tasks: Vec<JoinHandle<()>> = Vec::new();
+
+    background_tasks.push(spawn_broadcaster(state.clone(), tick_ms));
+
     if args.demo || args.nats_url.is_none() {
-        spawn_demo_driver(state.clone(), tick_ms);
+        background_tasks.push(spawn_demo_driver(state.clone(), tick_ms));
     }
     if let Some(url) = args.nats_url.clone() {
         let subjects: Vec<String> = args
             .nats_subjects
             .split(',')
-            .map(|s| s.trim().to_string())
+            .map(str::trim)
             .filter(|s| !s.is_empty())
+            .map(ToString::to_string)
             .collect();
-        spawn_nats_ingest(state.clone(), url, subjects);
+        background_tasks.push(spawn_nats_ingest(state.clone(), url, subjects));
     }
     if let Some(base) = args.anomaly_url.clone() {
-        spawn_anomaly_poll(state.clone(), base);
+        background_tasks.push(spawn_anomaly_poll(state.clone(), base));
     }
-    spawn_broadcaster(state.clone(), tick_ms);
 
     let web_dir = args
         .web_dir
@@ -138,8 +145,7 @@ async fn main() -> Result<()> {
         );
     }
 
-    let static_files = ServeDir::new(&web_dir)
-        .not_found_service(ServeFile::new(index));
+    let static_files = ServeDir::new(&web_dir).not_found_service(ServeFile::new(index));
 
     let app = Router::new()
         .route("/health", get(health))
@@ -152,6 +158,10 @@ async fn main() -> Result<()> {
     tracing::info!(%args.http_addr, web = %web_dir.display(), "symphony bridge listening");
     let listener = tokio::net::TcpListener::bind(args.http_addr).await?;
     axum::serve(listener, app).await?;
+
+    for task in background_tasks {
+        task.abort();
+    }
     Ok(())
 }
 
@@ -191,9 +201,11 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
     });
 
     let mut recv_task = tokio::spawn(async move {
-        while let Some(Ok(msg)) = receiver.next().await {
-            if matches!(msg, Message::Close(_)) {
-                break;
+        while let Some(msg) = receiver.next().await {
+            match msg {
+                Ok(Message::Close(_)) => break,
+                Ok(_) => {}
+                Err(_) => break,
             }
         }
     });
@@ -204,8 +216,8 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
     }
 }
 
-fn spawn_broadcaster(state: AppState, tick_ms: u64) {
-    let _ = tokio::spawn(async move {
+fn spawn_broadcaster(state: AppState, tick_ms: u64) -> JoinHandle<()> {
+    tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_millis(tick_ms));
         loop {
             interval.tick().await;
@@ -228,11 +240,11 @@ fn spawn_broadcaster(state: AppState, tick_ms: u64) {
             }
             let _ = state.tx.send(frame);
         }
-    });
+    })
 }
 
-fn spawn_demo_driver(state: AppState, tick_ms: u64) {
-    let _ = tokio::spawn(async move {
+fn spawn_demo_driver(state: AppState, tick_ms: u64) -> JoinHandle<()> {
+    tokio::spawn(async move {
         let mut t: f64 = 0.0;
         let step = tick_ms as f64 / 1000.0;
         let mut interval = tokio::time::interval(Duration::from_millis(tick_ms));
@@ -257,11 +269,11 @@ fn spawn_demo_driver(state: AppState, tick_ms: u64) {
                 w.event = Some("demo_chaos_pulse".into());
             }
         }
-    });
+    })
 }
 
-fn spawn_nats_ingest(state: AppState, url: String, subjects: Vec<String>) {
-    let _ = tokio::spawn(async move {
+fn spawn_nats_ingest(state: AppState, url: String, subjects: Vec<String>) -> JoinHandle<()> {
+    tokio::spawn(async move {
         loop {
             match run_nats_ingest(state.clone(), &url, &subjects).await {
                 Ok(()) => tracing::warn!("nats ingest ended, reconnecting"),
@@ -269,7 +281,7 @@ fn spawn_nats_ingest(state: AppState, url: String, subjects: Vec<String>) {
             }
             tokio::time::sleep(Duration::from_secs(3)).await;
         }
-    });
+    })
 }
 
 async fn run_nats_ingest(state: AppState, url: &str, subjects: &[String]) -> Result<()> {
@@ -278,21 +290,23 @@ async fn run_nats_ingest(state: AppState, url: &str, subjects: &[String]) -> Res
         .with_context(|| format!("connect nats at {url}"))?;
     tracing::info!(%url, ?subjects, "nats ingest connected");
 
+    let mut subscriber_tasks = Vec::new();
     for subject in subjects {
         let mut sub = client.subscribe(subject.clone()).await?;
         let state = state.clone();
         let subject_name = subject.clone();
-        let _ = tokio::spawn(async move {
+        subscriber_tasks.push(tokio::spawn(async move {
             while let Some(msg) = sub.next().await {
                 if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&msg.payload) {
                     apply_nats_event(&state, &subject_name, &v).await;
                 }
             }
-        });
+        }));
     }
 
-    tokio::signal::ctrl_c().await?;
-    Ok(())
+    loop {
+        future::pending::<()>().await;
+    }
 }
 
 async fn apply_nats_event(state: &AppState, subject: &str, value: &serde_json::Value) {
@@ -323,8 +337,8 @@ async fn apply_nats_event(state: &AppState, subject: &str, value: &serde_json::V
     }
 }
 
-fn spawn_anomaly_poll(state: AppState, base: String) {
-    let _ = tokio::spawn(async move {
+fn spawn_anomaly_poll(state: AppState, base: String) -> JoinHandle<()> {
+    tokio::spawn(async move {
         let client = reqwest::Client::new();
         let url = format!("{}/v1/score", base.trim_end_matches('/'));
         let mut interval = tokio::time::interval(Duration::from_secs(2));
@@ -343,7 +357,7 @@ fn spawn_anomaly_poll(state: AppState, base: String) {
                 Err(e) => tracing::debug!(%e, "anomaly poll failed"),
             }
         }
-    });
+    })
 }
 
 fn now_ms() -> u64 {

@@ -133,6 +133,11 @@ async fn main() -> Result<()> {
         background_tasks.push(spawn_anomaly_poll(state.clone(), base));
     }
 
+    tracing::info!(
+        workers = background_tasks.len(),
+        "symphony background workers started"
+    );
+
     let web_dir = args
         .web_dir
         .canonicalize()
@@ -188,7 +193,7 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                             continue;
                         }
                     };
-                    if sender.send(Message::Text(text.into())).await.is_err() {
+                    if sender.send(Message::Text(text)).await.is_err() {
                         break;
                     }
                 }
@@ -304,9 +309,8 @@ async fn run_nats_ingest(state: AppState, url: &str, subjects: &[String]) -> Res
         }));
     }
 
-    loop {
-        future::pending::<()>().await;
-    }
+    tokio::signal::ctrl_c().await?;
+    Ok(())
 }
 
 async fn apply_nats_event(state: &AppState, subject: &str, value: &serde_json::Value) {

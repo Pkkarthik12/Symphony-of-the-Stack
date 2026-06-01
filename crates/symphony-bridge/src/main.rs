@@ -193,7 +193,7 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                             continue;
                         }
                     };
-                    if sender.send(Message::Text(text)).await.is_err() {
+                    if sender.send(Message::text(text)).await.is_err() {
                         break;
                     }
                 }
